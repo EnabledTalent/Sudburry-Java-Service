@@ -1,0 +1,36 @@
+huggingface:
+  api:
+    url: ${HUGGINGFACE_API_URL}
+    token: ${HUGGINGFACE_API_TOKEN}
+
+email:
+  brevo:
+    api-key: ${BREVO_API_KEY}
+    from-email: ${BREVO_FROM_EMAIL}
+    from-name: ${BREVO_FROM_NAME}
+spring:
+  application:
+    name: SudburyCityPlatform
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+server:
+  port: ${PORT:${SERVER_PORT}}
+jwt:
+  secret: ${JWT_SECRET}
+

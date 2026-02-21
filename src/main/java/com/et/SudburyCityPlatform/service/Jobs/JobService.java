@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 @Service
@@ -578,7 +579,41 @@ public class JobService {
             throw new ForbiddenException("Unauthorized access");
         }
 
-        return applicationRepository.findByJobId(jobId);
+        List<JobApplicationRequest> apps = applicationRepository.findByJobId(jobId);
+        if (apps.isEmpty()) return apps;
+
+        // Batch-load profiles to avoid N+1 queries
+        List<String> emails = apps.stream()
+                .map(JobApplicationRequest::getEmail)
+                .filter(e -> e != null && !e.isBlank())
+                .map(e -> e.trim().toLowerCase())
+                .distinct()
+                .toList();
+
+        Map<String, JobSeekerProfile> byEmail = emails.isEmpty()
+                ? Map.of()
+                : profileRepository.findByEmailIn(emails).stream()
+                .filter(p -> p.getEmail() != null && !p.getEmail().isBlank())
+                .collect(java.util.stream.Collectors.toMap(
+                        p -> p.getEmail().trim().toLowerCase(),
+                        Function.identity(),
+                        (a, b) -> a
+                ));
+
+        for (JobApplicationRequest app : apps) {
+            Integer matchPct;
+            String email = app.getEmail() != null ? app.getEmail().trim().toLowerCase() : null;
+            JobSeekerProfile seekerProfile = (email != null && !email.isBlank()) ? byEmail.get(email) : null;
+            if (seekerProfile != null) {
+                matchPct = scoreJob(seekerProfile, job).getMatchPercentage();
+            } else {
+                // fallback: experience-only match if profile doesn't exist
+                matchPct = experienceMatchPercentage(app.getYearsOfExperience(), job.getExperienceRange());
+            }
+            app.setMatchPercentage(matchPct);
+        }
+
+        return apps;
     }
 
     public List<JobApplicationRequest> getApplicationsByEmail(String email) {

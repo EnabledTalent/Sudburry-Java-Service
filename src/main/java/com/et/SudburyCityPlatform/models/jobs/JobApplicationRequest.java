@@ -1,6 +1,7 @@
 package com.et.SudburyCityPlatform.models.jobs;
 
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -81,6 +82,14 @@ public class JobApplicationRequest {
 
     @Enumerated(EnumType.STRING)
     private ApplicationStatus status = ApplicationStatus.APPLIED;
+
+    /**
+     * Computed per-request for a given job (not stored in DB).
+     * Only included in JSON when non-null.
+     */
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Integer matchPercentage;
 
     @PrePersist
     protected void onApply() {

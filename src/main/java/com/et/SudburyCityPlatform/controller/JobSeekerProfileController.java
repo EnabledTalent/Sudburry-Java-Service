@@ -35,7 +35,7 @@ public class JobSeekerProfileController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('STUDENT','EMPLOYER')")
     public JobSeekerProfile get(@RequestParam String email) {
         return service.get(email);
     }

@@ -1,6 +1,7 @@
 package com.et.SudburyCityPlatform.controller;
 
 import com.et.SudburyCityPlatform.models.jobs.CustomUserDetails;
+import com.et.SudburyCityPlatform.service.auth.FirstLoginService;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +14,12 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    private final FirstLoginService firstLoginService;
+
+    public AuthController(FirstLoginService firstLoginService) {
+        this.firstLoginService = firstLoginService;
+    }
 
     @GetMapping("/me")
     public Map<String, Object> me(Authentication auth) {
@@ -28,6 +35,7 @@ public class AuthController {
             out.put("principalUsername", principal.getUsername());
             out.put("principalUserId", principal.getUserId());
             out.put("principalEmployerId", principal.getEmployerId());
+            out.put("firstTimeLogin", firstLoginService.consumeFirstTimeLogin(principal.getUsername()));
         } else {
             out.put("principalType", auth != null && auth.getPrincipal() != null ? auth.getPrincipal().getClass().getName() : null);
         }

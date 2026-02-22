@@ -3,6 +3,8 @@ package com.et.SudburyCityPlatform.service;
 import com.et.SudburyCityPlatform.models.jobs.Education;
 import com.et.SudburyCityPlatform.models.jobs.ResumeResponse;
 import com.et.SudburyCityPlatform.models.jobs.WorkExperience;
+import com.et.SudburyCityPlatform.service.ai.ResumeAiParserService;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.tika.Tika;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,6 +17,7 @@ import java.util.regex.Pattern;
 public class ResumeParserService {
 
     private final Tika tika = new Tika();
+    private final ResumeAiParserService ai;
 
     private static final Map<String, List<String>> SECTION_ALIASES = Map.of(
             "education", List.of("education", "academic background"),
@@ -27,6 +30,10 @@ public class ResumeParserService {
             "accessibility", List.of("accessibility", "disability")
     );
 
+    public ResumeParserService(ResumeAiParserService ai) {
+        this.ai = ai;
+    }
+
     /* ======================= ENTRY POINT ======================= */
 
     public ResumeResponse parseResume(MultipartFile file) throws Exception {
@@ -34,19 +41,146 @@ public class ResumeParserService {
         String text = normalize(tika.parseToString(file.getInputStream()));
 
         ResumeResponse response = new ResumeResponse();
-        response.setBasicInfo(extractBasicInfo(text));
-        response.setEducation(extractEducation(text));
-        response.setWorkExperience(extractWorkExperience(text));
-        response.setSkills(extractSkills(text));
-        response.setProjects(extractList(text, "projects"));
-        response.setAchievements(extractList(text, "achievements"));
-        response.setCertification(extractList(text, "certifications"));
-        response.setPreference(extractList(text, "preferences"));
-        response.setAccessibilityNeeds(extractAccessibility(text));
         response.setOtherDetails(text);
         response.setReviewAgree(true);
 
+        // 1) Try AI-first for better structured autofill.
+        // 2) If AI fails, fall back to regex parsing (legacy behavior).
+        boolean parsed = applyAiParsing(text, response);
+        if (!parsed) {
+            response.setBasicInfo(extractBasicInfo(text));
+            response.setEducation(extractEducation(text));
+            response.setWorkExperience(extractWorkExperience(text));
+            response.setSkills(extractSkills(text));
+            response.setProjects(extractList(text, "projects"));
+            response.setAchievements(extractList(text, "achievements"));
+            response.setCertification(extractList(text, "certifications"));
+            response.setPreference(extractList(text, "preferences"));
+            response.setAccessibilityNeeds(extractAccessibility(text));
+        }
+
         return response;
+    }
+
+    private boolean applyAiParsing(String resumeText, ResumeResponse out) {
+        try {
+            JsonNode json = ai.extractStrictJson(resumeText);
+            if (json == null || !json.isObject()) return false;
+
+            // personalInfo -> basicInfo map
+            JsonNode p = json.get("personalInfo");
+            Map<String, String> basic = new HashMap<>();
+            if (p != null && p.isObject()) {
+                basic.put("name", textOrNull(p.get("name")));
+                basic.put("email", textOrNull(p.get("email")));
+                basic.put("phone", textOrNull(p.get("phone")));
+                basic.put("linkedin", textOrNull(p.get("linkedin")));
+            }
+            out.setBasicInfo(basic);
+
+            // skills
+            out.setSkills(stringArray(json.get("skills")));
+
+            // education
+            out.setEducation(mapEducation(json.get("education")));
+
+            // experience
+            out.setWorkExperience(mapExperience(json.get("experience")));
+
+            // projects -> list of strings (name + short description)
+            out.setProjects(mapProjects(json.get("projects")));
+
+            // certifications / awards
+            out.setCertification(stringArray(json.get("certifications")));
+            List<String> awards = stringArray(json.get("awards"));
+            out.setAchievements(awards);
+
+            // minimal normalize/dedupe
+            out.setSkills(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getSkills(), true));
+            out.setCertification(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getCertification(), false));
+            out.setAchievements(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getAchievements(), false));
+            out.setProjects(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getProjects(), false));
+            out.setEducation(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeEducation(out.getEducation()));
+            out.setWorkExperience(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeWorkExperience(out.getWorkExperience()));
+
+            // preference/accessibility remain legacy-only for now
+            out.setPreference(List.of());
+            out.setAccessibilityNeeds(List.of());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String textOrNull(JsonNode n) {
+        if (n == null || n.isNull()) return null;
+        String s = n.asText();
+        s = com.et.SudburyCityPlatform.service.ai.ResumeNormalization.clean(s);
+        return s;
+    }
+
+    private static List<String> stringArray(JsonNode arr) {
+        if (arr == null || !arr.isArray()) return List.of();
+        List<String> out = new ArrayList<>();
+        for (JsonNode n : arr) {
+            String v = textOrNull(n);
+            if (v != null) out.add(v);
+        }
+        return out;
+    }
+
+    private static List<Education> mapEducation(JsonNode arr) {
+        if (arr == null || !arr.isArray()) return List.of();
+        List<Education> out = new ArrayList<>();
+        for (JsonNode n : arr) {
+            if (n == null || !n.isObject()) continue;
+            Education e = new Education();
+            e.setDegree(textOrNull(n.get("degree")));
+            e.setFieldOfStudy(textOrNull(n.get("fieldOfStudy")));
+            e.setInstitution(textOrNull(n.get("institution")));
+            e.setStartDate(textOrNull(n.get("startDate")));
+            e.setEndDate(textOrNull(n.get("endDate")));
+            e.setGrade(textOrNull(n.get("grade")));
+            e.setLocation(textOrNull(n.get("location")));
+            out.add(e);
+        }
+        return out;
+    }
+
+    private static List<WorkExperience> mapExperience(JsonNode arr) {
+        if (arr == null || !arr.isArray()) return List.of();
+        List<WorkExperience> out = new ArrayList<>();
+        for (JsonNode n : arr) {
+            if (n == null || !n.isObject()) continue;
+            WorkExperience we = new WorkExperience();
+            we.setJobTitle(textOrNull(n.get("jobTitle")));
+            we.setCompany(textOrNull(n.get("company")));
+            we.setLocation(textOrNull(n.get("location")));
+            we.setStartDate(textOrNull(n.get("startDate")));
+            we.setEndDate(textOrNull(n.get("endDate")));
+            if (n.hasNonNull("currentlyWorking")) {
+                we.setCurrentlyWorking(n.get("currentlyWorking").asBoolean());
+            }
+            we.setResponsibilities(stringArray(n.get("responsibilities")));
+            we.setTechnologies(stringArray(n.get("technologies")));
+            we.setDescription(null);
+            out.add(we);
+        }
+        return out;
+    }
+
+    private static List<String> mapProjects(JsonNode arr) {
+        if (arr == null || !arr.isArray()) return List.of();
+        List<String> out = new ArrayList<>();
+        for (JsonNode n : arr) {
+            if (n == null || !n.isObject()) continue;
+            String name = textOrNull(n.get("name"));
+            String desc = textOrNull(n.get("description"));
+            if (name == null && desc == null) continue;
+            if (name != null && desc != null) out.add(name + " - " + desc);
+            else out.add(name != null ? name : desc);
+        }
+        return out;
     }
 
     /* ======================= NORMALIZATION ======================= */

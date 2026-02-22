@@ -13,13 +13,28 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class JobSeekerAiService {
+
+    private static final String OUT_OF_SCOPE_REPLY = "Sorry i have no information about wat ur asking";
+
+    private static final Set<String> JOB_KEYWORDS = Set.of(
+            "job", "jobs", "role", "position", "opening", "openings", "available",
+            "apply", "application", "applied", "status", "interview", "offer", "hired", "rejected",
+            "salary", "location", "remote", "hybrid", "onsite", "requirements", "experience", "skills", "resume", "cv"
+    );
+
+    private static final Pattern JOB_ID_PATTERN = Pattern.compile(
+            "(?i)\\b(job\\s*id|jobid|id)\\s*[:=#]?\\s*\\d+\\b"
+    );
 
     @Value("${huggingface.api.url}")
     private String apiUrl;
@@ -49,6 +64,10 @@ public class JobSeekerAiService {
             throw new BadRequestException("message is required");
         }
 
+        if (!isJobQuestion(req.getMessage())) {
+            return OUT_OF_SCOPE_REPLY;
+        }
+
         int maxAvailable = req.getMaxAvailableJobs() != null ? req.getMaxAvailableJobs() : 15;
         int maxApplied = req.getMaxAppliedJobs() != null ? req.getMaxAppliedJobs() : 15;
 
@@ -73,16 +92,18 @@ public class JobSeekerAiService {
 
         String raw = callHuggingFace(messages);
         String answer = extractAssistantContent(raw);
-        return answer != null ? answer : raw;
+        String out = answer != null ? answer : raw;
+        return sanitizeOutput(out);
     }
 
     private String systemPrompt() {
         return """
 You are a job search assistant for a job seeker.
 You will be given two contexts: AVAILABLE_JOBS and APPLIED_JOBS (with statuses).
-Answer the user's questions ONLY using the provided job context when referencing specific jobs.
-If the user asks for recommendations, propose up to 5 jobs and cite their job IDs.
-If the user asks about application status, use APPLIED_JOBS.
+Answer ONLY questions about jobs, available jobs, and the user's applied jobs (application statuses).
+If the user asks anything outside jobs, reply exactly: "Sorry i have no information about wat ur asking"
+Do not include job IDs, application IDs, or any identifiers in your answer.
+Use plain text only (no special characters, no bullet symbols, no emojis).
 Keep responses concise and actionable.
 """.trim();
     }
@@ -96,8 +117,7 @@ Keep responses concise and actionable.
             sb.append("- (none)\n");
         } else {
             for (Job j : available) {
-                sb.append("- id=").append(j.getId())
-                        .append(", role=").append(safe(j.getRole()))
+                sb.append("- role=").append(safe(j.getRole()))
                         .append(", location=").append(safe(j.getLocation()))
                         .append(", type=").append(safe(j.getEmploymentType()))
                         .append(", salary=").append(j.getSalary() != null ? j.getSalary() : "N/A")
@@ -112,9 +132,7 @@ Keep responses concise and actionable.
         } else {
             for (JobApplicationRequest a : applied) {
                 Job j = a.getJob();
-                sb.append("- applicationId=").append(a.getId())
-                        .append(", jobId=").append(j != null ? j.getId() : "N/A")
-                        .append(", status=").append(a.getStatus() != null ? a.getStatus().name() : "N/A")
+                sb.append("- status=").append(a.getStatus() != null ? a.getStatus().name() : "N/A")
                         .append(", role=").append(j != null ? safe(j.getRole()) : "N/A")
                         .append(", location=").append(j != null ? safe(j.getLocation()) : "N/A")
                         .append(", type=").append(j != null ? safe(j.getEmploymentType()) : "N/A")
@@ -170,6 +188,40 @@ Keep responses concise and actionable.
         if (s == null) return "N/A";
         String cleaned = s.replace("\n", " ").trim();
         return cleaned.length() <= max ? cleaned : cleaned.substring(0, max) + "...";
+    }
+
+    private static boolean isJobQuestion(String message) {
+        if (message == null) return false;
+        String m = message.trim().toLowerCase();
+        if (m.isBlank()) return false;
+        for (String k : JOB_KEYWORDS) {
+            if (m.contains(k)) return true;
+        }
+        return false;
+    }
+
+    private static String sanitizeOutput(String input) {
+        if (input == null) return "";
+        // Remove explicit job id mentions first.
+        String s = JOB_ID_PATTERN.matcher(input).replaceAll("");
+
+        // Normalize to ASCII and drop non-ASCII characters (emojis, bullets, etc.).
+        s = Normalizer.normalize(s, Normalizer.Form.NFKD);
+        s = s.replaceAll("[^\\x00-\\x7F]", "");
+
+        // Keep only letters/digits/space and very basic punctuation.
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isLetterOrDigit(c) || Character.isWhitespace(c)
+                    || c == '.' || c == ',' || c == '!' || c == '?' || c == '-' ) {
+                out.append(c);
+            }
+        }
+
+        // Collapse whitespace and trim.
+        String cleaned = out.toString().replaceAll("\\s+", " ").trim();
+        return cleaned.isBlank() ? OUT_OF_SCOPE_REPLY : cleaned;
     }
 }
 

@@ -4,7 +4,9 @@ import com.et.SudburyCityPlatform.models.jobs.Education;
 import com.et.SudburyCityPlatform.models.jobs.ResumeResponse;
 import com.et.SudburyCityPlatform.models.jobs.WorkExperience;
 import com.et.SudburyCityPlatform.service.ai.ResumeAiParserService;
+import com.et.SudburyCityPlatform.service.ai.ResumeNormalization;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tika.Tika;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -64,50 +66,57 @@ public class ResumeParserService {
 
     private boolean applyAiParsing(String resumeText, ResumeResponse out) {
         try {
-            JsonNode json = ai.extractStrictJson(resumeText);
-            if (json == null || !json.isObject()) return false;
 
-            // personalInfo -> basicInfo map
-            JsonNode p = json.get("personalInfo");
+            JsonNode resumeJson = ai.extractStrictJson(resumeText);
+
+            if (resumeJson == null || !resumeJson.isObject()) {
+                return false;
+            }
+
+            // personalInfo
+            JsonNode p = resumeJson.get("personalInfo");
             Map<String, String> basic = new HashMap<>();
+
             if (p != null && p.isObject()) {
                 basic.put("name", textOrNull(p.get("name")));
                 basic.put("email", textOrNull(p.get("email")));
                 basic.put("phone", textOrNull(p.get("phone")));
                 basic.put("linkedin", textOrNull(p.get("linkedin")));
             }
+
             out.setBasicInfo(basic);
 
             // skills
-            out.setSkills(stringArray(json.get("skills")));
+            out.setSkills(stringArray(resumeJson.get("skills")));
 
             // education
-            out.setEducation(mapEducation(json.get("education")));
+            out.setEducation(mapEducation(resumeJson.get("education")));
 
             // experience
-            out.setWorkExperience(mapExperience(json.get("experience")));
+            out.setWorkExperience(mapExperience(resumeJson.get("experience")));
 
-            // projects -> list of strings (name + short description)
-            out.setProjects(mapProjects(json.get("projects")));
+            // projects
+            out.setProjects(mapProjects(resumeJson.get("projects")));
 
             // certifications / awards
-            out.setCertification(stringArray(json.get("certifications")));
-            List<String> awards = stringArray(json.get("awards"));
-            out.setAchievements(awards);
+            out.setCertification(stringArray(resumeJson.get("certifications")));
+            out.setAchievements(stringArray(resumeJson.get("awards")));
 
-            // minimal normalize/dedupe
-            out.setSkills(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getSkills(), true));
-            out.setCertification(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getCertification(), false));
-            out.setAchievements(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getAchievements(), false));
-            out.setProjects(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeStringList(out.getProjects(), false));
-            out.setEducation(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeEducation(out.getEducation()));
-            out.setWorkExperience(com.et.SudburyCityPlatform.service.ai.ResumeNormalization.normalizeWorkExperience(out.getWorkExperience()));
+            // normalize
+            out.setSkills(ResumeNormalization.normalizeStringList(out.getSkills(), true));
+            out.setCertification(ResumeNormalization.normalizeStringList(out.getCertification(), false));
+            out.setAchievements(ResumeNormalization.normalizeStringList(out.getAchievements(), false));
+            out.setProjects(ResumeNormalization.normalizeStringList(out.getProjects(), false));
+            out.setEducation(ResumeNormalization.normalizeEducation(out.getEducation()));
+            out.setWorkExperience(ResumeNormalization.normalizeWorkExperience(out.getWorkExperience()));
 
-            // preference/accessibility remain legacy-only for now
             out.setPreference(List.of());
             out.setAccessibilityNeeds(List.of());
+
             return true;
+
         } catch (Exception e) {
+            e.printStackTrace();
             return false;
         }
     }

@@ -30,65 +30,32 @@ public class ResumeAiParserService {
 
     public JsonNode extractStrictJson(String resumeText) {
         if (resumeText == null) resumeText = "";
-        String text = truncate(resumeText, 12000);
+        String text = truncate(resumeText, 9000);
 
         String prompt = """
-Extract the following details from the resume and return STRICT JSON only (no markdown, no explanations).
+Extract resume details and return STRICT JSON only.
 
-JSON schema:
+Return this structure:
+
 {
-  "personalInfo": {
-    "name": string|null,
-    "email": string|null,
-    "phone": string|null,
-    "linkedin": string|null,
-    "github": string|null,
-    "portfolio": string|null,
-    "location": string|null
-  },
-  "skills": string[],
-  "education": [
-    {
-      "degree": string|null,
-      "fieldOfStudy": string|null,
-      "institution": string|null,
-      "startDate": string|null,
-      "endDate": string|null,
-      "grade": string|null,
-      "location": string|null
-    }
-  ],
-  "experience": [
-    {
-      "jobTitle": string|null,
-      "company": string|null,
-      "location": string|null,
-      "startDate": string|null,
-      "endDate": string|null,
-      "currentlyWorking": boolean|null,
-      "responsibilities": string[],
-      "technologies": string[]
-    }
-  ],
-  "projects": [
-    {
-      "name": string|null,
-      "description": string|null,
-      "startDate": string|null,
-      "endDate": string|null,
-      "currentlyWorking": boolean|null
-    }
-  ],
-  "certifications": string[],
-  "awards": string[]
+  "personalInfo": {...},
+  "skills": [],
+  "education": [],
+  "experience": [],
+  "projects": [],
+  "certifications": [],
+  "awards": []
 }
 
 Rules:
-- Output must be valid JSON and MUST start with '{' and end with '}'.
-- Use null for unknown fields.
-- Arrays must be present (empty array if none).
+- Maximum 15 skills
+- Maximum 5 responsibilities per job
+- Maximum 5 technologies per job
+- Keep values concise
+- No markdown
+- JSON must start with { and end with }
 
-Resume Text:
+Resume:
 %s
 """.formatted(text).trim();
 
@@ -99,9 +66,9 @@ Resume Text:
 
         String raw = callHuggingFace(messages);
         String content = extractAssistantContent(raw);
-        String json = extractJsonObject(content != null ? content : raw);
+        String cleaned = cleanJson(content);
         try {
-            return objectMapper.readTree(json);
+            return objectMapper.readTree(cleaned);
         } catch (Exception e) {
             // last chance: parse raw
             try {
@@ -112,11 +79,32 @@ Resume Text:
         }
     }
 
+    private String cleanJson(String content) {
+
+        if (content == null) return null;
+
+        content = content.trim();
+
+        // Remove markdown fences
+        content = content.replaceAll("(?s)```json", "");
+        content = content.replaceAll("(?s)```", "");
+
+        // Remove leading text before first {
+        int start = content.indexOf("{");
+        int end = content.lastIndexOf("}");
+
+        if (start >= 0 && end > start) {
+            content = content.substring(start, end + 1);
+        }
+
+        return content.trim();
+    }
+
     private String callHuggingFace(List<Map<String, String>> messages) {
         HuggingFaceRequest request = new HuggingFaceRequest();
-        request.model = "meta-llama/Llama-3.1-8B-Instruct";
-        request.max_tokens = 900;
-        request.temperature = 0.1;
+        request.model = "mistralai/Mistral-7B-Instruct-v0.2";
+        request.max_tokens = 1400;
+        request.temperature = 0;
         request.messages = messages;
 
         HttpHeaders headers = new HttpHeaders();
@@ -131,23 +119,32 @@ Resume Text:
         return response.getBody();
     }
 
-    private String extractAssistantContent(String rawJson) {
-        if (rawJson == null || rawJson.isBlank()) return null;
+    private String extractAssistantContent(String raw) {
+
         try {
-            JsonNode root = objectMapper.readTree(rawJson);
-            JsonNode choices = root.get("choices");
-            if (choices != null && choices.isArray() && !choices.isEmpty()) {
-                JsonNode msg = choices.get(0).get("message");
-                if (msg != null) {
-                    JsonNode content = msg.get("content");
-                    if (content != null && !content.isNull()) {
-                        return content.asText();
-                    }
-                }
+            JsonNode root = objectMapper.readTree(raw);
+
+            if (root.has("error")) {
+                System.out.println("HF ERROR: " + root.get("error").asText());
+                return null;
             }
-        } catch (Exception ignored) {
+
+            JsonNode choices = root.path("choices");
+
+            if (!choices.isArray() || choices.size() == 0) {
+                System.out.println("⚠ Invalid HF response structure");
+                return null;
+            }
+
+            return choices.get(0)
+                    .path("message")
+                    .path("content")
+                    .asText();
+
+        } catch (Exception e) {
+            System.out.println("Parsing failure: " + e.getMessage());
+            return null;
         }
-        return null;
     }
 
     private static String extractJsonObject(String s) {

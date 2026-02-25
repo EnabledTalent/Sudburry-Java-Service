@@ -34,9 +34,7 @@ public class ResumeAiParserService {
 
         String prompt = """
 Extract resume details and return STRICT JSON only.
-
 Return this structure:
-
 {
   "personalInfo": {...},
   "skills": [],
@@ -46,7 +44,6 @@ Return this structure:
   "certifications": [],
   "awards": []
 }
-
 Rules:
 - Maximum 15 skills
 - Maximum 5 responsibilities per job
@@ -54,7 +51,6 @@ Rules:
 - Keep values concise
 - No markdown
 - JSON must start with { and end with }
-
 Resume:
 %s
 """.formatted(text).trim();
@@ -103,7 +99,7 @@ Resume:
     private String callHuggingFace(List<Map<String, String>> messages) {
         HuggingFaceRequest request = new HuggingFaceRequest();
         request.model = "mistralai/Mistral-7B-Instruct-v0.2";
-        request.max_tokens = 1400;
+        request.max_tokens = 2000;
         request.temperature = 0;
         request.messages = messages;
 

@@ -1,6 +1,5 @@
 package com.et.SudburyCityPlatform.service.ai;
 
-import com.et.SudburyCityPlatform.models.HuggingFaceRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,11 +13,11 @@ import java.util.Map;
 @Service
 public class ResumeAiParserService {
 
-    @Value("${huggingface.api.url}")
+    @Value("${groq.api.url}")
     private String apiUrl;
 
-    @Value("${huggingface.api.token}")
-    private String apiToken;
+    @Value("${groq.api.key}")
+    private String apiKey;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -29,11 +28,13 @@ public class ResumeAiParserService {
     }
 
     public JsonNode extractStrictJson(String resumeText) {
+
         if (resumeText == null) resumeText = "";
-        String text = truncate(resumeText, 9000);
+        String text = truncate(resumeText, 10000);
 
         String prompt = """
 Extract resume details and return STRICT JSON only.
+
 Return this structure:
 {
   "personalInfo": {...},
@@ -44,48 +45,67 @@ Return this structure:
   "certifications": [],
   "awards": []
 }
+
 Rules:
 - Maximum 15 skills
 - Maximum 5 responsibilities per job
 - Maximum 5 technologies per job
-- Keep values concise
 - No markdown
 - JSON must start with { and end with }
+
 Resume:
 %s
 """.formatted(text).trim();
 
-        List<Map<String, String>> messages = List.of(
-                Map.of("role", "system", "content", "You extract structured resume data and output strict JSON only."),
-                Map.of("role", "user", "content", prompt)
+        Map<String, Object> request = Map.of(
+                "model", "llama-3.3-70b-versatile",   // 8K context
+                "temperature", 0,
+                "max_tokens", 2500,
+                "messages", List.of(
+                        Map.of("role", "system", "content", "Return strict JSON only."),
+                        Map.of("role", "user", "content", prompt)
+                )
         );
 
-        String raw = callHuggingFace(messages);
-        String content = extractAssistantContent(raw);
-        String cleaned = cleanJson(content);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
+
+        ResponseEntity<String> response =
+                restTemplate.exchange(apiUrl, HttpMethod.POST, entity, String.class);
+
+        return parseGroqResponse(response.getBody());
+    }
+
+    private JsonNode parseGroqResponse(String raw) {
         try {
-            return objectMapper.readTree(cleaned);
+            JsonNode root = objectMapper.readTree(raw);
+
+            JsonNode contentNode = root
+                    .path("choices")
+                    .get(0)
+                    .path("message")
+                    .path("content");
+
+            String content = cleanJson(contentNode.asText());
+
+            return objectMapper.readTree(content);
+
         } catch (Exception e) {
-            // last chance: parse raw
-            try {
-                return objectMapper.readTree(raw);
-            } catch (Exception ignored) {
-                return null;
-            }
+            e.printStackTrace();
+            return null;
         }
     }
 
     private String cleanJson(String content) {
-
         if (content == null) return null;
 
         content = content.trim();
-
-        // Remove markdown fences
         content = content.replaceAll("(?s)```json", "");
         content = content.replaceAll("(?s)```", "");
 
-        // Remove leading text before first {
         int start = content.indexOf("{");
         int end = content.lastIndexOf("}");
 
@@ -96,64 +116,7 @@ Resume:
         return content.trim();
     }
 
-    private String callHuggingFace(List<Map<String, String>> messages) {
-        HuggingFaceRequest request = new HuggingFaceRequest();
-        request.model = "mistralai/Mistral-7B-Instruct-v0.2";
-        request.max_tokens = 2000;
-        request.temperature = 0;
-        request.messages = messages;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        if (apiToken != null && !apiToken.isBlank()) {
-            headers.setBearerAuth(apiToken);
-        }
-
-        HttpEntity<HuggingFaceRequest> entity = new HttpEntity<>(request, headers);
-        ResponseEntity<String> response =
-                restTemplate.exchange(apiUrl, HttpMethod.POST, entity, String.class);
-        return response.getBody();
-    }
-
-    private String extractAssistantContent(String raw) {
-
-        try {
-            JsonNode root = objectMapper.readTree(raw);
-
-            if (root.has("error")) {
-                System.out.println("HF ERROR: " + root.get("error").asText());
-                return null;
-            }
-
-            JsonNode choices = root.path("choices");
-
-            if (!choices.isArray() || choices.size() == 0) {
-                System.out.println("⚠ Invalid HF response structure");
-                return null;
-            }
-
-            return choices.get(0)
-                    .path("message")
-                    .path("content")
-                    .asText();
-
-        } catch (Exception e) {
-            System.out.println("Parsing failure: " + e.getMessage());
-            return null;
-        }
-    }
-
-    private static String extractJsonObject(String s) {
-        if (s == null) return "{}";
-        int start = s.indexOf('{');
-        int end = s.lastIndexOf('}');
-        if (start >= 0 && end > start) return s.substring(start, end + 1);
-        return "{}";
-    }
-
     private static String truncate(String s, int max) {
-        if (s == null) return "";
         return s.length() <= max ? s : s.substring(0, max);
     }
 }
-

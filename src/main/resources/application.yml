@@ -3,6 +3,12 @@ huggingface:
     url: ${HUGGINGFACE_API_URL}
     token: ${HUGGINGFACE_API_TOKEN}
 
+groq:
+  api:
+    url: ${GROQ_API_URL}
+    key: ${GROQ_API_KEY}
+
+
 email:
   brevo:
     api-key: ${BREVO_API_KEY}

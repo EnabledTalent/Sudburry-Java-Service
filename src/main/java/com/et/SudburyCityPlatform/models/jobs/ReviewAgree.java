@@ -25,4 +25,5 @@ public class ReviewAgree {
     private String discovery;
     private String comments;
     private Boolean agreed;
+    private Boolean hasDisability;
 }

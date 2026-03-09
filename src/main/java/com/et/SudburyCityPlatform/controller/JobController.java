@@ -4,6 +4,7 @@ import com.et.SudburyCityPlatform.dto.ApplyJobRequestDTO;
 import com.et.SudburyCityPlatform.dto.JobMatchDTO;
 import com.et.SudburyCityPlatform.dto.JobSeekerInviteDTO;
 import com.et.SudburyCityPlatform.dto.JobSeekerNotificationDTO;
+import com.et.SudburyCityPlatform.dto.JobSeekerNotificationsResponseDTO;
 import com.et.SudburyCityPlatform.exception.BadRequestException;
 import com.et.SudburyCityPlatform.models.jobs.*;
 import com.et.SudburyCityPlatform.service.Jobs.JobService;
@@ -145,14 +146,18 @@ public class JobController {
      */
     @GetMapping("/jobseeker/notifications")
     @PreAuthorize("hasRole('STUDENT')")
-    public List<JobSeekerNotificationDTO> getNotifications(
+    public JobSeekerNotificationsResponseDTO getNotifications(
             @RequestParam(required = false) String email,
+            @RequestParam(required = false, defaultValue = "70") int matchThreshold,
             Authentication auth) {
         String seekerEmail = email != null && !email.isBlank() ? email : (auth != null ? auth.getName() : null);
         if (seekerEmail == null || seekerEmail.isBlank()) {
             throw new BadRequestException("Email is required");
         }
-        return jobService.getRecruiterActionNotifications(seekerEmail);
+        List<JobSeekerInviteDTO> invites = jobService.getInvitesForJobSeeker(seekerEmail);
+        List<JobSeekerNotificationDTO> recruiterActions = jobService.getRecruiterActionNotifications(seekerEmail);
+        List<JobMatchDTO> recommendedJobs = jobService.getRecommendedJobMatchesForJobSeeker(seekerEmail, matchThreshold);
+        return new JobSeekerNotificationsResponseDTO(invites, recruiterActions, recommendedJobs);
     }
 
     /**

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class JobSeekerProfileService {
@@ -143,6 +144,7 @@ public class JobSeekerProfileService {
             ra.setDiscovery(dto.getReviewAgree().getDiscovery());
             ra.setComments(dto.getReviewAgree().getComments());
             ra.setAgreed(dto.getReviewAgree().getAgreed());
+            ra.setHasDisability(dto.getReviewAgree().getHasDisability());
             p.setReviewAgree(ra);
         }
     }
@@ -230,6 +232,125 @@ public class JobSeekerProfileService {
         if (p.getOtherDetails() != null) filled++;
         if (p.getReviewAgree() != null && Boolean.TRUE.equals(p.getReviewAgree().getAgreed())) filled++;
         return total > 0 ? (filled * 100) / total : 0;
+    }
+
+    public ProfileRequestDTO toDto(JobSeekerProfile p) {
+        ProfileRequestDTO dto = new ProfileRequestDTO();
+        dto.setBasicInfo(new BasicInfoDTO(
+                p.getFullName(),
+                p.getEmail(),
+                p.getPhone(),
+                p.getLinkedin()
+        ));
+        dto.setEducation(mapList(p.getEducation(), JobSeekerProfileService::toEducationDto));
+        dto.setWorkExperience(mapList(p.getWorkExperience(), JobSeekerProfileService::toWorkExperienceDto));
+        dto.setSkills(p.getSkills());
+        dto.setPrimarySkills(p.getPrimarySkills());
+        dto.setBasicSkills(p.getBasicSkills());
+        dto.setProjects(mapList(p.getProjects(), JobSeekerProfileService::toProjectDto));
+        dto.setAchievements(mapList(p.getAchievements(), JobSeekerProfileService::toAchievementDto));
+        dto.setCertification(mapList(p.getCertifications(), JobSeekerProfileService::toCertificationDto));
+
+        if (p.getPreference() != null) {
+            dto.setPreference(new PreferenceDTO(
+                    p.getPreference().getCompanySize(),
+                    p.getPreference().getJobType(),
+                    p.getPreference().getJobSearch()
+            ));
+        }
+
+        OtherDetailsDTO od = null;
+        if (p.getOtherDetails() != null || (p.getLanguages() != null && !p.getLanguages().isEmpty())) {
+            od = new OtherDetailsDTO();
+            od.setLanguages(mapList(p.getLanguages(), JobSeekerProfileService::toLanguageDto));
+            if (p.getOtherDetails() != null) {
+                od.setCareerStage(p.getOtherDetails().getCareerStage());
+                od.setEarliestAvailability(p.getOtherDetails().getEarliestAvailability());
+                od.setDesiredSalary(p.getOtherDetails().getDesiredSalary());
+                od.setOtherDetailsText(p.getOtherDetails().getOtherDetailsText());
+            }
+        }
+        dto.setOtherDetails(od);
+
+        if (p.getReviewAgree() != null) {
+            dto.setReviewAgree(new ReviewAgreeDTO(
+                    p.getReviewAgree().getDiscovery(),
+                    p.getReviewAgree().getComments(),
+                    p.getReviewAgree().getAgreed(),
+                    p.getReviewAgree().getHasDisability()
+            ));
+        }
+
+        return dto;
+    }
+
+    private static <T, R> List<R> mapList(List<T> list, java.util.function.Function<T, R> mapper) {
+        if (list == null) return Collections.emptyList();
+        return list.stream().map(mapper).collect(Collectors.toList());
+    }
+
+    private static EducationDTO toEducationDto(Education e) {
+        return new EducationDTO(
+                e.getDegree(),
+                e.getFieldOfStudy(),
+                e.getInstitution(),
+                e.getStartDate(),
+                e.getEndDate(),
+                e.getGrade(),
+                e.getLocation()
+        );
+    }
+
+    private static WorkExperienceDTO toWorkExperienceDto(WorkExperience we) {
+        return new WorkExperienceDTO(
+                we.getJobTitle(),
+                we.getCompany(),
+                we.getLocation(),
+                we.getStartDate(),
+                we.getEndDate(),
+                we.getCurrentlyWorking(),
+                we.getResponsibilities(),
+                we.getTechnologies(),
+                we.getDescription()
+        );
+    }
+
+    private static ProjectDTO toProjectDto(Project pr) {
+        return new ProjectDTO(
+                pr.getName(),
+                pr.getDescription(),
+                pr.getCurrentlyWorking(),
+                pr.getStartDate(),
+                pr.getEndDate(),
+                pr.getPhotoUrl()
+        );
+    }
+
+    private static AchievementDTO toAchievementDto(Achievement a) {
+        return new AchievementDTO(
+                a.getTitle(),
+                a.getIssueDate(),
+                a.getDescription()
+        );
+    }
+
+    private static CertificationDTO toCertificationDto(Certification c) {
+        return new CertificationDTO(
+                c.getName(),
+                c.getIssueDate(),
+                c.getIssuedOrganization(),
+                c.getCredentialId(),
+                c.getCredentialUrl()
+        );
+    }
+
+    private static LanguageProficiencyDTO toLanguageDto(LanguageProficiency lp) {
+        return new LanguageProficiencyDTO(
+                lp.getLanguage(),
+                lp.getSpeaking(),
+                lp.getReading(),
+                lp.getWriting()
+        );
     }
 
     private static Education mapEducation(EducationDTO dto, JobSeekerProfile profile) {

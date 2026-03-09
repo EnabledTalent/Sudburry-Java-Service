@@ -6,6 +6,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Entity
 @Table(name = "preferences")
 @Data
@@ -22,7 +24,18 @@ public class Preference {
     @JsonIgnore
     private JobSeekerProfile profile;
 
-    private String companySize;
-    private String jobType;
-    private String jobSearch;
+    @ElementCollection
+    @CollectionTable(name = "preference_company_sizes", joinColumns = @JoinColumn(name = "preference_id"))
+    @Column(name = "company_size")
+    private List<String> companySize;
+
+    @ElementCollection
+    @CollectionTable(name = "preference_job_types", joinColumns = @JoinColumn(name = "preference_id"))
+    @Column(name = "job_type")
+    private List<String> jobType;
+
+    @ElementCollection
+    @CollectionTable(name = "preference_job_searches", joinColumns = @JoinColumn(name = "preference_id"))
+    @Column(name = "job_search")
+    private List<String> jobSearch;
 }

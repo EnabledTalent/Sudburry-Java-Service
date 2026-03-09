@@ -802,6 +802,24 @@ public class JobService {
         return out;
     }
 
+    /**
+     * Notification-friendly job recommendations: only jobs >= threshold and not already applied to.
+     * Uses the same scoring as {@link #getJobMatchesForJobSeeker(String)}.
+     */
+    public List<JobMatchDTO> getRecommendedJobMatchesForJobSeeker(String email, int thresholdPct) {
+        int threshold = Math.max(0, Math.min(100, thresholdPct));
+        List<JobMatchDTO> matches = getJobMatchesForJobSeeker(email);
+        List<JobMatchDTO> out = new ArrayList<>();
+        for (JobMatchDTO m : matches) {
+            if (m == null || m.getJob() == null) continue;
+            if (m.getMatchPercentage() < threshold) continue;
+            Long jobId = m.getJob().getId();
+            if (jobId != null && applicationRepository.existsByJobIdAndEmail(jobId, email)) continue;
+            out.add(m);
+        }
+        return out;
+    }
+
     private static final Pattern NON_WORD = Pattern.compile("[^a-z0-9+.#]+");
 
     private JobMatchDTO scoreJob(JobSeekerProfile profile, Job job) {

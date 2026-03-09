@@ -1,7 +1,6 @@
 package com.et.SudburyCityPlatform.controller;
 
 import com.et.SudburyCityPlatform.dto.ProfileRequestDTO;
-import com.et.SudburyCityPlatform.models.jobs.JobSeekerProfile;
 import com.et.SudburyCityPlatform.service.Jobs.JobSeekerProfileService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -20,24 +19,24 @@ public class JobSeekerProfileController {
 
     @PostMapping
     @PreAuthorize("hasRole('STUDENT')")
-    public JobSeekerProfile save(
+    public ProfileRequestDTO save(
             @RequestParam String email,
             @RequestBody ProfileRequestDTO request) {
-        return service.save(email, request);
+        return service.toDto(service.save(email, request));
     }
 
     @PutMapping
     @PreAuthorize("hasRole('STUDENT')")
-    public JobSeekerProfile update(
+    public ProfileRequestDTO update(
             @RequestParam String email,
             @RequestBody ProfileRequestDTO request) {
-        return service.update(email, request);
+        return service.toDto(service.update(email, request));
     }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('STUDENT','EMPLOYER')")
-    public JobSeekerProfile get(@RequestParam String email) {
-        return service.get(email);
+    public ProfileRequestDTO get(@RequestParam String email) {
+        return service.toDto(service.get(email));
     }
 
     /**
@@ -45,7 +44,7 @@ public class JobSeekerProfileController {
      */
     @GetMapping("/all")
     @PreAuthorize("hasAnyRole('ADMIN','EMPLOYER')")
-    public List<JobSeekerProfile> listAll() {
+    public List<com.et.SudburyCityPlatform.models.jobs.JobSeekerProfile> listAll() {
         return service.listAll();
     }
 

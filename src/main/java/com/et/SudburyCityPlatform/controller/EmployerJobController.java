@@ -4,15 +4,22 @@ import com.et.SudburyCityPlatform.dto.EmployerAcceptedCandidateDTO;
 import com.et.SudburyCityPlatform.dto.EmployerDashboardMetricsDTO;
 import com.et.SudburyCityPlatform.dto.EmployerJobPostRequestDTO;
 import com.et.SudburyCityPlatform.dto.EmployerJobStatsDTO;
+import com.et.SudburyCityPlatform.exception.BadRequestException;
 import com.et.SudburyCityPlatform.models.jobs.*;
 import com.et.SudburyCityPlatform.repository.Jobs.EmployerRepository;
 import com.et.SudburyCityPlatform.service.Jobs.JobService;
+import com.et.SudburyCityPlatform.service.ai.JobPdfAiParserService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import org.apache.tika.Tika;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -27,10 +34,18 @@ public class EmployerJobController {
 
     private final JobService jobService;
     private final EmployerRepository employerRepository;
+    private final JobPdfAiParserService jobPdfAiParserService;
+    private final ObjectMapper objectMapper;
+    private final Tika tika = new Tika();
 
-    public EmployerJobController(JobService jobService, EmployerRepository employerRepository) {
+    public EmployerJobController(JobService jobService,
+                                 EmployerRepository employerRepository,
+                                 JobPdfAiParserService jobPdfAiParserService,
+                                 ObjectMapper objectMapper) {
         this.jobService = jobService;
         this.employerRepository = employerRepository;
+        this.jobPdfAiParserService = jobPdfAiParserService;
+        this.objectMapper = objectMapper;
     }
 
     // ---- Employer Jobs CRUD ----
@@ -89,6 +104,39 @@ public class EmployerJobController {
         Long employerId = resolveEmployerId(email, auth);
         Job created = jobService.createJobForEmployer(employerId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @PostMapping(value = "/jobs/upload-pdf", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<JsonNode> uploadJobsPdf(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String email,
+            Authentication auth
+    ) {
+        // Keep employer auth/identity check, but don't save anything to DB.
+        resolveEmployerId(email, auth);
+
+        if (file.isEmpty()) {
+            throw new BadRequestException("PDF file is required");
+        }
+
+        try {
+            String pdfText = tika.parseToString(file.getInputStream());
+            if (pdfText == null || pdfText.isBlank()) {
+                throw new BadRequestException("Could not extract text from the uploaded file");
+            }
+
+            JsonNode result = jobPdfAiParserService.extractJobsFromText(pdfText);
+            if (result == null || !result.has("jobs") || !result.get("jobs").isArray()) {
+                throw new BadRequestException("AI could not extract any jobs from the PDF");
+            }
+            // Return AI JSON as-is (preview-only, no DB writes).
+            return ResponseEntity.ok(result);
+
+        } catch (BadRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BadRequestException("Failed to process PDF: " + e.getMessage());
+        }
     }
 
     @GetMapping("/jobs/{jobId}")

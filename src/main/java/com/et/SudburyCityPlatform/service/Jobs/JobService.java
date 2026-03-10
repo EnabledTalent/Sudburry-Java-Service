@@ -73,6 +73,20 @@ public class JobService {
     }
 
     /**
+     * Bulk-create jobs for an employer (e.g. from a parsed PDF).
+     */
+    public List<Job> createJobsForEmployerBulk(Long employerId, List<EmployerJobPostRequestDTO> dtos) {
+        List<Job> saved = new ArrayList<>();
+        for (EmployerJobPostRequestDTO dto : dtos) {
+            Job job = new Job();
+            job.setEmployer(new Employer(employerId));
+            applyEmployerDto(job, dto, true);
+            saved.add(jobRepository.save(job));
+        }
+        return saved;
+    }
+
+    /**
      * Employer-scoped job update. Only the owner employer can update.
      */
     public Job updateJobForEmployer(Long employerId, Long jobId, EmployerJobPostRequestDTO dto) {
@@ -468,23 +482,25 @@ public class JobService {
         long jobsPrevMonth = jobs.stream().filter(j -> j.getPostedDate() != null && j.getPostedDate().isBefore(today.minusDays(30)) && !j.getPostedDate().isBefore(today.minusDays(60))).count();
         Integer activeJobsChangePct = percentChange(jobsPrevMonth, jobsThisMonth);
 
-        // Acceptance rate series: per-day accepted/(accepted+rejected) for applications applied on that day
+        // Acceptance rate series (chart):
+        // UI requirement: always show last 30 days (even if windowDays=90/365 for cards).
+        // Rate definition: per-day (OFFERED+HIRED) / (total applications) for applications applied on that day.
         List<EmployerDashboardMetricsDTO.AcceptanceRatePoint> series = new ArrayList<>();
         List<EmployerDashboardMetricsDTO.AcceptanceRatePoint> projected = new ArrayList<>();
 
-        LocalDate startDate = today.minusDays(Math.max(1, window - 1));
-        for (int i = 0; i < window; i++) {
+        int chartDays = Math.min(30, Math.max(1, window));
+        LocalDate startDate = today.minusDays(chartDays - 1L);
+        for (int i = 0; i < chartDays; i++) {
             LocalDate d = startDate.plusDays(i);
-            long decided = apps.stream()
+            long totalApplied = apps.stream()
                     .filter(a -> a.getAppliedAt() != null && a.getAppliedAt().toLocalDate().equals(d))
-                    .filter(a -> a.getStatus() == ApplicationStatus.OFFERED || a.getStatus() == ApplicationStatus.HIRED || a.getStatus() == ApplicationStatus.REJECTED)
                     .count();
-            long acceptedDecided = apps.stream()
+            long acceptedApplied = apps.stream()
                     .filter(a -> a.getAppliedAt() != null && a.getAppliedAt().toLocalDate().equals(d))
                     .filter(a -> a.getStatus() == ApplicationStatus.OFFERED || a.getStatus() == ApplicationStatus.HIRED)
                     .count();
 
-            int rate = decided == 0 ? 0 : (int) Math.round((acceptedDecided * 100.0) / decided);
+            int rate = totalApplied == 0 ? 0 : (int) Math.round((acceptedApplied * 100.0) / totalApplied);
             series.add(new EmployerDashboardMetricsDTO.AcceptanceRatePoint(d, clampPct(rate)));
         }
 

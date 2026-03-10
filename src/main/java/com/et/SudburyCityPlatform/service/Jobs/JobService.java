@@ -849,13 +849,25 @@ public class JobService {
         if (seekerSkills.isEmpty()) {
             skillPct = 0;
         } else {
-            // skills are from the seeker's side; match % = how many of their skills appear in job text
-            skillPct = (int) Math.round((matched.size() * 100.0) / seekerSkills.size());
+            // Skills are from the seeker's side. However, job seekers can have long skill lists;
+            // penalize "missing" skills softly so strong matches don't look artificially low.
+            //
+            // softDenominator = matched + (missing * penaltyFactor)
+            // Example: matched=10, missing=10, penalty=0.35 => 10/(10+3.5)=74%
+            double penaltyFactor = 0.35;
+            double denom = matched.size() + (missing.size() * penaltyFactor);
+            skillPct = denom <= 0 ? 0 : (int) Math.round((matched.size() * 100.0) / denom);
         }
 
         int expPct = experienceMatchPercentage(profile.getYearsOfExperience(), job.getExperienceRange());
 
-        int finalPct = (int) Math.round(skillPct * 0.70 + expPct * 0.30);
+        // Experience can be missing on either side; in that case reduce its influence.
+        boolean expUnknown = profile.getYearsOfExperience() == null ||
+                job.getExperienceRange() == null || job.getExperienceRange().isBlank();
+        double expWeight = expUnknown ? 0.15 : 0.25;
+        double skillWeight = 1.0 - expWeight;
+
+        int finalPct = (int) Math.round(skillPct * skillWeight + expPct * expWeight);
         finalPct = Math.max(0, Math.min(100, finalPct));
 
         return new JobMatchDTO(
@@ -909,7 +921,7 @@ public class JobService {
             return 50; // unknown requirement
         }
         if (yearsOfExperience == null) {
-            return 0; // seeker didn't provide experience
+            return 50; // seeker didn't provide experience (treat as unknown, not mismatch)
         }
 
         String r = experienceRange.trim().toLowerCase();

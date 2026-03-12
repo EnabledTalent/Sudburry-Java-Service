@@ -838,62 +838,263 @@ public class JobService {
 
     private static final Pattern NON_WORD = Pattern.compile("[^a-z0-9+.#]+");
 
+    /**
+     * Multi-factor job match scoring using all available profile and job data.
+     * Factors: tiered skills, job-required coverage, role/title match, experience,
+     * work preferences, location. Produces differentiated scores (not all same %).
+     */
     private JobMatchDTO scoreJob(JobSeekerProfile profile, Job job) {
-        Set<String> seekerSkills = new HashSet<>();
-        addNormalizedSkills(seekerSkills, profile.getPrimarySkills());
-        addNormalizedSkills(seekerSkills, profile.getSkills());
-        addNormalizedSkills(seekerSkills, profile.getBasicSkills());
-
         String jobText = normalizeText(
                 (job.getRole() == null ? "" : job.getRole()) + " " +
                 (job.getRequirements() == null ? "" : job.getRequirements()) + " " +
                 (job.getDescription() == null ? "" : job.getDescription())
         );
 
+        // 1) Tiered skill match: primary 2x, regular 1x, basic 0.5x. Include work-exp technologies.
+        Set<String> primary = new HashSet<>();
+        Set<String> regular = new HashSet<>();
+        Set<String> basic = new HashSet<>();
+        addNormalizedSkills(primary, profile.getPrimarySkills());
+        addNormalizedSkills(regular, profile.getSkills());
+        addNormalizedSkills(basic, profile.getBasicSkills());
+        addNormalizedSkills(regular, collectWorkExpTechnologies(profile));
+
         List<String> matched = new ArrayList<>();
         List<String> missing = new ArrayList<>();
-        for (String skill : seekerSkills) {
-            if (skill.isBlank()) continue;
-            if (containsSkill(jobText, skill)) {
-                matched.add(skill);
+        double skillScore = 0;
+        double skillMax = 0;
+
+        for (String s : primary) {
+            if (s.isBlank()) continue;
+            skillMax += 2.0;
+            if (skillMatchesJobText(jobText, s)) {
+                matched.add(s);
+                skillScore += 2.0;
             } else {
-                missing.add(skill);
+                missing.add(s);
+            }
+        }
+        for (String s : regular) {
+            if (s.isBlank()) continue;
+            skillMax += 1.0;
+            if (skillMatchesJobText(jobText, s)) {
+                if (!matched.contains(s)) matched.add(s);
+                skillScore += 1.0;
+            } else if (!missing.contains(s)) {
+                missing.add(s);
+            }
+        }
+        for (String s : basic) {
+            if (s.isBlank()) continue;
+            skillMax += 0.5;
+            if (skillMatchesJobText(jobText, s)) {
+                if (!matched.contains(s)) matched.add(s);
+                skillScore += 0.5;
+            } else if (!missing.contains(s)) {
+                missing.add(s);
             }
         }
 
-        int skillPct;
-        if (seekerSkills.isEmpty()) {
-            skillPct = 0;
-        } else {
-            // Skills are from the seeker's side. However, job seekers can have long skill lists;
-            // penalize "missing" skills softly so strong matches don't look artificially low.
-            //
-            // softDenominator = matched + (missing * penaltyFactor)
-            // Example: matched=10, missing=10, penalty=0.35 => 10/(10+3.5)=74%
-            double penaltyFactor = 0.35;
-            double denom = matched.size() + (missing.size() * penaltyFactor);
-            skillPct = denom <= 0 ? 0 : (int) Math.round((matched.size() * 100.0) / denom);
-        }
+        int skillPct = skillMax <= 0 ? 0 : (int) Math.round((skillScore / skillMax) * 100);
 
+        // 2) Job-required coverage: what % of job's key terms does seeker have?
+        Set<String> jobTerms = extractJobKeyTerms(job);
+        int coveragePct = 0;
+        if (!jobTerms.isEmpty()) {
+            long covered = jobTerms.stream()
+                    .filter(term -> seekerHasTerm(profile, term))
+                    .count();
+            coveragePct = (int) Math.round((covered * 100.0) / jobTerms.size());
+        }
+        int combinedSkillPct = (int) Math.round(skillPct * 0.6 + coveragePct * 0.4);
+
+        // 3) Role/title match: job role vs past titles, education
+        int rolePct = roleTitleMatchPct(profile, job);
+
+        // 4) Experience match
         int expPct = experienceMatchPercentage(profile.getYearsOfExperience(), job.getExperienceRange());
 
-        // Experience can be missing on either side; in that case reduce its influence.
-        boolean expUnknown = profile.getYearsOfExperience() == null ||
-                job.getExperienceRange() == null || job.getExperienceRange().isBlank();
-        double expWeight = expUnknown ? 0.15 : 0.25;
-        double skillWeight = 1.0 - expWeight;
+        // 5) Work preferences: employment type, remote/hybrid/onsite
+        int prefPct = preferenceMatchPct(profile, job);
 
-        int finalPct = (int) Math.round(skillPct * skillWeight + expPct * expWeight);
+        // 6) Location match
+        int locPct = locationMatchPct(profile, job);
+
+        // Weights: skills 40%, role 15%, experience 20%, preferences 15%, location 10%
+        double finalScore = combinedSkillPct * 0.40
+                + rolePct * 0.15
+                + expPct * 0.20
+                + prefPct * 0.15
+                + locPct * 0.10;
+
+        int finalPct = (int) Math.round(finalScore);
         finalPct = Math.max(0, Math.min(100, finalPct));
 
         return new JobMatchDTO(
                 job,
                 finalPct,
-                skillPct,
+                combinedSkillPct,
                 expPct,
                 matched,
                 missing
         );
+    }
+
+    private static List<String> collectWorkExpTechnologies(JobSeekerProfile profile) {
+        List<String> out = new ArrayList<>();
+        if (profile.getWorkExperience() == null) return out;
+        for (WorkExperience we : profile.getWorkExperience()) {
+            if (we.getTechnologies() != null) {
+                out.addAll(we.getTechnologies());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Generic skill match: seeker skill appears in job text (word-boundary aware).
+     * Works for any domain: paramedic, firefighter, developer, retail, etc.
+     */
+    private static boolean skillMatchesJobText(String jobText, String skill) {
+        return containsSkill(jobText, skill);
+    }
+
+    /**
+     * Extract key terms from job text dynamically (generic for any job type).
+     * Tokenizes requirements/description/role, filters stop words, keeps meaningful 3+ char terms.
+     */
+    private static final Set<String> STOP_WORDS = Set.of(
+            "the", "and", "for", "with", "this", "that", "from", "have", "has", "been", "will", "can",
+            "your", "you", "are", "was", "were", "our", "not", "but", "they", "their", "would", "could",
+            "should", "about", "into", "more", "other", "some", "than", "when", "which", "while", "them",
+            "then", "these", "what", "where", "who", "how", "all", "each", "every", "both", "few", "most",
+            "such", "only", "own", "same", "too", "very", "just", "also", "must", "may", "need", "able",
+            "applicant", "candidate", "position", "role", "required", "requirements", "preferred", "experience"
+    );
+
+    private static Set<String> extractJobKeyTerms(Job job) {
+        Set<String> terms = new HashSet<>();
+        String text = ((job.getRequirements() != null ? job.getRequirements() : "") + " " +
+                (job.getDescription() != null ? job.getDescription() : "") + " " +
+                (job.getRole() != null ? job.getRole() : "")).toLowerCase();
+
+        String[] tokens = NON_WORD.matcher(text).replaceAll(" ").split("\\s+");
+        for (String t : tokens) {
+            String w = t.trim();
+            if (w.length() >= 3 && !STOP_WORDS.contains(w) && w.matches("[a-z0-9+.#-]+")) {
+                terms.add(w);
+            }
+        }
+        return terms;
+    }
+
+    private static boolean seekerHasTerm(JobSeekerProfile profile, String term) {
+        String t = " " + term + " ";
+        String check = (join(profile.getPrimarySkills()) + " " + join(profile.getSkills()) + " " +
+                join(profile.getBasicSkills()) + " " + (profile.getSummary() != null ? profile.getSummary() : "") +
+                " " + collectWorkExpSkillsString(profile)).toLowerCase();
+        return (" " + NON_WORD.matcher(check).replaceAll(" ") + " ").contains(t);
+    }
+
+    /** Collect skills from work experience (technologies + responsibilities). Generic for any job type. */
+    private static String collectWorkExpSkillsString(JobSeekerProfile profile) {
+        if (profile.getWorkExperience() == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (WorkExperience we : profile.getWorkExperience()) {
+            if (we.getJobTitle() != null) sb.append(we.getJobTitle()).append(" ");
+            if (we.getTechnologies() != null) {
+                for (String s : we.getTechnologies()) sb.append(s).append(" ");
+            }
+            if (we.getResponsibilities() != null) {
+                for (String s : we.getResponsibilities()) sb.append(s).append(" ");
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String join(List<String> list) {
+        if (list == null) return "";
+        return String.join(" ", list);
+    }
+
+    private static int roleTitleMatchPct(JobSeekerProfile profile, Job job) {
+        String jobRole = (job.getRole() != null ? job.getRole() : "").toLowerCase();
+        if (jobRole.isBlank()) return 50;
+
+        int best = 0;
+        if (profile.getWorkExperience() != null) {
+            for (WorkExperience we : profile.getWorkExperience()) {
+                String title = (we.getJobTitle() != null ? we.getJobTitle() : "").toLowerCase();
+                if (title.isBlank()) continue;
+                int sim = textOverlapPct(jobRole, title);
+                if (sim > best) best = sim;
+            }
+        }
+        if (profile.getEducation() != null && !profile.getEducation().isEmpty()) {
+            for (Education ed : profile.getEducation()) {
+                String deg = (ed.getDegree() != null ? ed.getDegree() : "") + " " + (ed.getFieldOfStudy() != null ? ed.getFieldOfStudy() : "");
+                if (deg.isBlank()) continue;
+                int sim = textOverlapPct(jobRole, deg.trim().toLowerCase());
+                if (sim > best) best = sim;
+            }
+        }
+        return best > 0 ? best : 50;
+    }
+
+    private static int textOverlapPct(String a, String b) {
+        if (a.isBlank() || b.isBlank()) return 0;
+        String[] aw = a.split("\\s+");
+        String[] bw = b.split("\\s+");
+        int matches = 0;
+        for (String wa : aw) {
+            if (wa.length() < 2) continue;
+            for (String wb : bw) {
+                if (wb.length() < 2) continue;
+                if (wa.equals(wb) || wa.contains(wb) || wb.contains(wa)) {
+                    matches++;
+                    break;
+                }
+            }
+        }
+        return aw.length > 0 ? Math.min(100, (matches * 100) / aw.length) : 0;
+    }
+
+    private static int preferenceMatchPct(JobSeekerProfile profile, Job job) {
+        Preference pref = profile.getPreference();
+        if (pref == null) return 50;
+
+        String jobType = (job.getEmploymentType() != null ? job.getEmploymentType() : "").toLowerCase();
+        if (jobType.isBlank() || pref.getJobType() == null || pref.getJobType().isEmpty()) return 50;
+
+        boolean match = pref.getJobType().stream()
+                .anyMatch(pt -> pt != null && !pt.isBlank() &&
+                        (jobType.contains(pt.toLowerCase().trim()) || pt.toLowerCase().contains(jobType)));
+        return match ? 100 : 25;
+    }
+
+    private static int locationMatchPct(JobSeekerProfile profile, Job job) {
+        String jobLoc = (job.getLocation() != null ? job.getLocation() : "").toLowerCase();
+        if (jobLoc.isBlank()) return 50;
+
+        String city = (profile.getCity() != null ? profile.getCity() : "").toLowerCase();
+        if (!city.isBlank() && jobLoc.contains(city)) return 100;
+
+        if (profile.getWorkExperience() != null) {
+            for (WorkExperience we : profile.getWorkExperience()) {
+                String loc = (we.getLocation() != null ? we.getLocation() : "").toLowerCase();
+                if (!loc.isBlank() && (jobLoc.contains(loc) || loc.contains(jobLoc.split(",")[0].trim()))) {
+                    return 85;
+                }
+            }
+        }
+        if (profile.getEducation() != null) {
+            for (Education ed : profile.getEducation()) {
+                String loc = (ed.getLocation() != null ? ed.getLocation() : "").toLowerCase();
+                if (!loc.isBlank() && jobLoc.contains(loc)) return 75;
+            }
+        }
+        if (jobLoc.contains("remote")) return 70;
+        return 30;
     }
 
     private static void addNormalizedSkills(Set<String> out, List<String> skills) {

@@ -24,12 +24,12 @@ import java.util.regex.Pattern;
 @Service
 public class JobSeekerAiService {
 
-    private static final String OUT_OF_SCOPE_REPLY = "Sorry i have no information about wat ur asking";
+    private static final String OUT_OF_SCOPE_REPLY = "I can not answer personal questions. Please ask me something else.";
 
-    private static final Set<String> JOB_KEYWORDS = Set.of(
-            "job", "jobs", "role", "position", "opening", "openings", "available",
-            "apply", "application", "applied", "status", "interview", "offer", "hired", "rejected",
-            "salary", "location", "remote", "hybrid", "onsite", "requirements", "experience", "skills", "resume", "cv"
+    private static final Set<String> PERSONAL_KEYWORDS = Set.of(
+            "my age", "my weight", "my address", "my phone", "my password",
+            "where do i live", "how old am i", "my birthday", "my bank",
+            "my credit card", "my social security", "my ssn"
     );
 
     private static final Pattern JOB_ID_PATTERN = Pattern.compile(
@@ -64,7 +64,7 @@ public class JobSeekerAiService {
             throw new BadRequestException("message is required");
         }
 
-        if (!isJobQuestion(req.getMessage())) {
+        if (isPersonalQuestion(req.getMessage())) {
             return OUT_OF_SCOPE_REPLY;
         }
 
@@ -98,13 +98,21 @@ public class JobSeekerAiService {
 
     private String systemPrompt() {
         return """
-You are a job search assistant for a job seeker.
+You are a helpful career and job platform assistant for a job seeker.
 You will be given two contexts: AVAILABLE_JOBS and APPLIED_JOBS (with statuses).
-Answer ONLY questions about jobs, available jobs, and the user's applied jobs (application statuses) you can answer about what the user needs to do in order to get a particular job and how to apply for it.
-If the user asks anything outside jobs, reply exactly: "Sorry i have no information about wat ur asking"
-Do not include job IDs, application IDs, or any identifiers in your answer.
-Use plain text only (no special characters, no bullet symbols, no emojis).
-Keep responses concise and actionable.
+
+You can answer questions about:
+- Available jobs, applied jobs, application statuses, how to apply
+- Career advice, resume tips, interview preparation, salary negotiation
+- Industry trends, skill development, certifications, career paths
+- General knowledge questions the user asks
+
+Rules:
+- Always format your response as bullet points (use - at the start of each point).
+- If the question is about personal/private information (age, address, passwords, bank details), reply exactly: "I can not answer personal questions. Please ask me something else."
+- Do not include job IDs, application IDs, or any numeric identifiers in your answer.
+- Keep responses concise, actionable, and well-structured.
+- No emojis.
 """.trim();
     }
 
@@ -146,7 +154,7 @@ Keep responses concise and actionable.
     private String callHuggingFace(List<Map<String, String>> messages) {
         HuggingFaceRequest request = new HuggingFaceRequest();
         request.model = "meta-llama/Llama-3.1-8B-Instruct";
-        request.max_tokens = 350;
+        request.max_tokens = 600;
         request.temperature = 0.2;
         request.messages = messages;
 
@@ -190,11 +198,11 @@ Keep responses concise and actionable.
         return cleaned.length() <= max ? cleaned : cleaned.substring(0, max) + "...";
     }
 
-    private static boolean isJobQuestion(String message) {
+    private static boolean isPersonalQuestion(String message) {
         if (message == null) return false;
         String m = message.trim().toLowerCase();
         if (m.isBlank()) return false;
-        for (String k : JOB_KEYWORDS) {
+        for (String k : PERSONAL_KEYWORDS) {
             if (m.contains(k)) return true;
         }
         return false;
@@ -202,26 +210,34 @@ Keep responses concise and actionable.
 
     private static String sanitizeOutput(String input) {
         if (input == null) return "";
-        // Remove explicit job id mentions first.
         String s = JOB_ID_PATTERN.matcher(input).replaceAll("");
 
-        // Normalize to ASCII and drop non-ASCII characters (emojis, bullets, etc.).
         s = Normalizer.normalize(s, Normalizer.Form.NFKD);
         s = s.replaceAll("[^\\x00-\\x7F]", "");
 
-        // Keep only letters/digits/space and very basic punctuation.
         StringBuilder out = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
             if (Character.isLetterOrDigit(c) || Character.isWhitespace(c)
-                    || c == '.' || c == ',' || c == '!' || c == '?' || c == '-' ) {
+                    || c == '.' || c == ',' || c == '!' || c == '?' || c == '-'
+                    || c == '\n' || c == ':' || c == '/' || c == '(' || c == ')') {
                 out.append(c);
             }
         }
 
-        // Collapse whitespace and trim.
-        String cleaned = out.toString().replaceAll("\\s+", " ").trim();
-        return cleaned.isBlank() ? OUT_OF_SCOPE_REPLY : cleaned;
+        String cleaned = out.toString().trim();
+        if (cleaned.isBlank()) return OUT_OF_SCOPE_REPLY;
+
+        // Preserve bullet structure: normalize lines but keep newlines
+        String[] lines = cleaned.split("\\n");
+        StringBuilder result = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.replaceAll("\\s+", " ").trim();
+            if (!trimmed.isEmpty()) {
+                result.append(trimmed).append("\n");
+            }
+        }
+        return result.toString().trim();
     }
 }
 

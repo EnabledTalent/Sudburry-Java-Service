@@ -722,6 +722,28 @@ public class JobService {
         return out;
     }
 
+    /**
+     * Delete a single invite for a job seeker (dismiss notification). Only if invitee email matches.
+     */
+    public void deleteInviteForJobSeeker(Long inviteId, String email) {
+        if (email == null || email.isBlank()) throw new BadRequestException("Email is required");
+        JobInvite inv = jobInviteRepository.findById(inviteId)
+                .orElseThrow(() -> new ResourceNotFoundException("Invite not found"));
+        if (!email.trim().equalsIgnoreCase(inv.getInviteeEmail() != null ? inv.getInviteeEmail().trim() : "")) {
+            throw new ForbiddenException("You can only delete your own invites");
+        }
+        jobInviteRepository.delete(inv);
+    }
+
+    /**
+     * Delete all invites for a job seeker (clear all invite notifications).
+     */
+    public void deleteAllInvitesForJobSeeker(String email) {
+        if (email == null || email.isBlank()) throw new BadRequestException("Email is required");
+        List<JobInvite> invites = jobInviteRepository.findByInviteeEmailOrderByInvitedAtDesc(email.trim());
+        jobInviteRepository.deleteAll(invites);
+    }
+
     private static String messageForStatus(ApplicationStatus status, String companyName, String jobRole) {
         return switch (status) {
             case REQUEST_SENT -> "Recruiter from " + companyName + " sent an invitation request for a matching job: " + jobRole + ".";

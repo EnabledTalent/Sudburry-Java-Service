@@ -161,6 +161,33 @@ public class JobController {
     }
 
     /**
+     * Delete a single invite (dismiss one notification). Job seeker must own the invite.
+     */
+    @DeleteMapping("/jobseeker/notifications/invites/{inviteId}")
+    @PreAuthorize("hasRole('STUDENT')")
+    public void deleteInvite(
+            @PathVariable Long inviteId,
+            @RequestParam(required = false) String email,
+            Authentication auth) {
+        String seekerEmail = email != null && !email.isBlank() ? email : (auth != null ? auth.getName() : null);
+        if (seekerEmail == null || seekerEmail.isBlank()) throw new BadRequestException("Email is required");
+        jobService.deleteInviteForJobSeeker(inviteId, seekerEmail);
+    }
+
+    /**
+     * Delete all invites for the job seeker (clear all invite notifications).
+     */
+    @DeleteMapping("/jobseeker/notifications/invites")
+    @PreAuthorize("hasRole('STUDENT')")
+    public void deleteAllInvites(
+            @RequestParam(required = false) String email,
+            Authentication auth) {
+        String seekerEmail = email != null && !email.isBlank() ? email : (auth != null ? auth.getName() : null);
+        if (seekerEmail == null || seekerEmail.isBlank()) throw new BadRequestException("Email is required");
+        jobService.deleteAllInvitesForJobSeeker(seekerEmail);
+    }
+
+    /**
      * Invites sent to this job seeker (employer invited them to apply). Show in profile/notifications.
      * Each item includes jobId so the UI can show which job on click.
      */

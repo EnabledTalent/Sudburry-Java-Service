@@ -456,8 +456,9 @@ public class JobService {
             apps = applicationRepository.findByJobIdIn(jobIds);
         }
 
+        long totalApplicants = apps.size();
         long matchingApplicants = apps.stream().filter(a -> a.getStatus() == ApplicationStatus.MATCHING).count();
-        double avgApplicantsPerJob = activeJobs > 0 ? (matchingApplicants * 1.0 / activeJobs) : 0.0;
+        double avgApplicantsPerJob = activeJobs > 0 ? (totalApplicants * 1.0 / activeJobs) : 0.0;
 
         long accepted = apps.stream().filter(a -> a.getStatus() == ApplicationStatus.OFFERED || a.getStatus() == ApplicationStatus.HIRED).count();
 
@@ -560,6 +561,7 @@ public class JobService {
 
         return new EmployerDashboardMetricsDTO(
                 window,
+                totalApplicants,
                 matchingApplicants,
                 activeJobs,
                 round2(avgApplicantsPerJob),

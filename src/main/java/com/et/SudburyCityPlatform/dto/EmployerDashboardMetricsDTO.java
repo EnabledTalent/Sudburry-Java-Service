@@ -19,9 +19,10 @@ public class EmployerDashboardMetricsDTO {
     private Integer windowDays;
 
     // Cards (right side in UI)
-    private long matchingApplicants;
+    private long totalApplicants;             // All applications across employer's jobs
+    private long matchingApplicants;          // Applications with status MATCHING (recruiter-marked)
     private long activeJobs;
-    private double avgApplicantsPerJob;
+    private double avgApplicantsPerJob;       // totalApplicants / activeJobs
 
     private long candidatesAccepted;          // OFFERED + HIRED
     private Integer acceptedChangePct;        // compared to previous window (null if not computable)

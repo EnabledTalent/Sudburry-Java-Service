@@ -32,10 +32,10 @@ public class JobPdfAiParserService {
         String text = truncate(pdfText, 12000);
 
         String prompt = """
-Extract ALL job postings from the text below and return STRICT JSON only.
+Extract THE job posting from the text below. The content contains exactly ONE job. Return STRICT JSON only.
 
-Return a JSON object with a single key "jobs" containing an array.
-Each job object must have exactly these fields (use null if not found):
+Return a JSON object with a single key "job" containing one job object (not an array).
+The job object must have exactly these fields (use null if not found):
 {
   "role": "Job title / role name",
   "companyName": "Company name or null",
@@ -54,7 +54,7 @@ Each job object must have exactly these fields (use null if not found):
 }
 
 Rules:
-- Return {"jobs": [...]} with one entry per distinct job posting found
+- Return {"job": {...}} with exactly ONE job object (the content has one job only)
 - If salary is given as a range like "$60K-$80K", convert to numbers: salaryMin=60000, salaryMax=80000
 - If salary is hourly like "$25/hr", convert to annual: multiply by 2080
 - No markdown, no explanation, JSON only
@@ -69,7 +69,7 @@ Text:
                 "temperature", 0,
                 "max_tokens", 4000,
                 "messages", List.of(
-                        Map.of("role", "system", "content", "Return strict JSON only. Extract every job posting you find."),
+                        Map.of("role", "system", "content", "Return strict JSON only. Extract the single job posting. Return {\"job\": {...}} with one job object."),
                         Map.of("role", "user", "content", prompt)
                 )
         );

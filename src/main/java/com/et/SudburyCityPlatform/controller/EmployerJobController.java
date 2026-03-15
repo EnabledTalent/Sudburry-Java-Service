@@ -126,11 +126,17 @@ public class EmployerJobController {
             }
 
             JsonNode result = jobPdfAiParserService.extractJobsFromText(pdfText);
-            if (result == null || !result.has("jobs") || !result.get("jobs").isArray()) {
+            if (result == null) {
                 throw new BadRequestException("AI could not extract any jobs from the PDF");
             }
-            // Return AI JSON as-is (preview-only, no DB writes).
-            return ResponseEntity.ok(result);
+            // Always return a single job. Support both {"job": {...}} and legacy {"jobs": [...]}
+            JsonNode jobNode = result.has("job") ? result.get("job")
+                    : (result.has("jobs") && result.get("jobs").isArray() && result.get("jobs").size() > 0)
+                    ? result.get("jobs").get(0) : null;
+            if (jobNode == null || !jobNode.isObject()) {
+                throw new BadRequestException("AI could not extract a job from the PDF");
+            }
+            return ResponseEntity.ok(jobNode);
 
         } catch (BadRequestException e) {
             throw e;

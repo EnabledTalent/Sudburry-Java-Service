@@ -20,8 +20,9 @@ public class ServiceProviderProfile {
 
     /**
      * Owner identity - from authenticated user (SERVICEPROVIDER role).
+     * Multiple profiles can share the same email.
      */
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String email;
 
     @Column(name = "provider_type", columnDefinition = "TEXT")

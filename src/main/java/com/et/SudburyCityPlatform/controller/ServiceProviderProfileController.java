@@ -15,6 +15,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/service-provider/profile")
 @PreAuthorize("hasAnyRole('ADMIN','SERVICEPROVIDER')")
@@ -38,25 +40,26 @@ public class ServiceProviderProfileController {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(resolvedEmail, request));
     }
 
-    @PutMapping
-    @Operation(summary = "Update service provider profile")
+    @PutMapping("/{id}")
+    @Operation(summary = "Update service provider profile by ID")
     public ServiceProviderProfile update(
+            @PathVariable Long id,
             @RequestParam(required = false) String email,
             @Valid @RequestBody ServiceProviderProfileRequestDTO request,
             Authentication auth
     ) {
         String resolvedEmail = resolveEmail(email, auth);
-        return service.update(resolvedEmail, request);
+        return service.update(id, resolvedEmail, request);
     }
 
     @GetMapping
-    @Operation(summary = "Get service provider profile by email")
-    public ServiceProviderProfile get(
+    @Operation(summary = "List all service provider profiles for email")
+    public List<ServiceProviderProfile> list(
             @RequestParam(required = false) String email,
             Authentication auth
     ) {
         String resolvedEmail = resolveEmail(email, auth);
-        return service.get(resolvedEmail);
+        return service.listByEmail(resolvedEmail);
     }
 
     @GetMapping("/{id}")
@@ -76,14 +79,15 @@ public class ServiceProviderProfileController {
         return profile;
     }
 
-    @DeleteMapping
-    @Operation(summary = "Delete service provider profile")
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete service provider profile by ID")
     public void delete(
+            @PathVariable Long id,
             @RequestParam(required = false) String email,
             Authentication auth
     ) {
         String resolvedEmail = resolveEmail(email, auth);
-        service.delete(resolvedEmail);
+        service.delete(id, resolvedEmail);
     }
 
     private String resolveEmail(String email, Authentication auth) {

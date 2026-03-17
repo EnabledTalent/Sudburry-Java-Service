@@ -1,11 +1,13 @@
 package com.et.SudburyCityPlatform.service;
 
 import com.et.SudburyCityPlatform.dto.ServiceProviderProfileRequestDTO;
-import com.et.SudburyCityPlatform.exception.ConflictException;
+import com.et.SudburyCityPlatform.exception.ForbiddenException;
 import com.et.SudburyCityPlatform.exception.ResourceNotFoundException;
 import com.et.SudburyCityPlatform.models.serviceprovider.ServiceProviderProfile;
 import com.et.SudburyCityPlatform.repository.serviceprovider.ServiceProviderProfileRepository;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 @Service
 public class ServiceProviderProfileService {
@@ -17,25 +19,24 @@ public class ServiceProviderProfileService {
     }
 
     public ServiceProviderProfile create(String email, ServiceProviderProfileRequestDTO dto) {
-        if (repository.existsByEmail(email)) {
-            throw new ConflictException("Service provider profile already exists for this email");
-        }
         ServiceProviderProfile profile = new ServiceProviderProfile();
         profile.setEmail(email);
         apply(dto, profile);
         return repository.save(profile);
     }
 
-    public ServiceProviderProfile update(String email, ServiceProviderProfileRequestDTO dto) {
-        ServiceProviderProfile profile = repository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Service provider profile not found"));
-        apply(dto, profile);
-        return repository.save(profile);
+    public List<ServiceProviderProfile> listByEmail(String email) {
+        return repository.findAllByEmailOrderByCreatedAtDesc(email);
     }
 
-    public ServiceProviderProfile get(String email) {
-        return repository.findByEmail(email)
+    public ServiceProviderProfile update(Long id, String ownerEmail, ServiceProviderProfileRequestDTO dto) {
+        ServiceProviderProfile profile = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service provider profile not found"));
+        if (!profile.getEmail().equalsIgnoreCase(ownerEmail)) {
+            throw new ForbiddenException("Unauthorized access");
+        }
+        apply(dto, profile);
+        return repository.save(profile);
     }
 
     public ServiceProviderProfile getById(Long id) {
@@ -43,9 +44,12 @@ public class ServiceProviderProfileService {
                 .orElseThrow(() -> new ResourceNotFoundException("Service provider profile not found"));
     }
 
-    public void delete(String email) {
-        ServiceProviderProfile profile = repository.findByEmail(email)
+    public void delete(Long id, String ownerEmail) {
+        ServiceProviderProfile profile = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service provider profile not found"));
+        if (!profile.getEmail().equalsIgnoreCase(ownerEmail)) {
+            throw new ForbiddenException("Unauthorized access");
+        }
         repository.delete(profile);
     }
 

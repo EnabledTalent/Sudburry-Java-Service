@@ -41,6 +41,7 @@ public class SecurityConfig {
                         // These APIs are protected via @PreAuthorize and require a valid JWT.
                         .requestMatchers(
                                 "/api/v1/jobs/**",
+                                "/api/v1/service-provider/**",
                                 "/api/jobseeker/**",
                                 "/api/employer/**",
                                 "/api/auth/**"

@@ -73,6 +73,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String role = rawRole.trim().toUpperCase();
         if (role.startsWith("ROLE_")) role = role.substring("ROLE_".length());
         if (role.equals("JOB_SEEKER") || role.equals("JOBSEEKER") || role.equals("SEEKER")) return "STUDENT";
+        if (role.equals("SERVICE_PROVIDER")) return "SERVICEPROVIDER";
         return role;
     }
 

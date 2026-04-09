@@ -92,6 +92,7 @@ public class SecurityConfig {
                         "http://127.0.0.1:8083",
                         "http://127.0.0.1:3000",
                         "https://sudbury-city-ui.vercel.app",
+                        "https://app.sudburyjobs.ca",
                         "https://java-services-sudburry.onrender.com"
                 )
         );

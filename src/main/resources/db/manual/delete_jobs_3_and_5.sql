@@ -1,7 +1,7 @@
 -- One-time cleanup: remove jobs id 3 and 5 (FK-safe order).
 -- Child tables referencing jobs.id (see models): saved_jobs, job_invites,
 -- JobApplicationRequest -> physical table is usually applicant_details (Spring camelCase -> snake_case).
--- Flyway runs each migration once; this will not re-execute after success.
+-- Run manually against PostgreSQL when needed (e.g. psql, DBeaver); not executed at app startup.
 
 DO $$
 DECLARE

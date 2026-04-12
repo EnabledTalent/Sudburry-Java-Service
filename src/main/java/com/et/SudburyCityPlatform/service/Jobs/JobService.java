@@ -17,10 +17,12 @@ import com.et.SudburyCityPlatform.models.jobs.*;
 import com.et.SudburyCityPlatform.repository.Jobs.JobApplicationRepository;
 import com.et.SudburyCityPlatform.repository.Jobs.JobInviteRepository;
 import com.et.SudburyCityPlatform.repository.Jobs.JobRepository;
+import com.et.SudburyCityPlatform.repository.Jobs.SavedJobRepository;
 import com.et.SudburyCityPlatform.repository.Jobs.JobSeekerProfileRepository;
 import com.et.SudburyCityPlatform.service.EmailService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -48,6 +50,9 @@ public class JobService {
 
     @Autowired
     private JobInviteRepository jobInviteRepository;
+
+    @Autowired
+    private SavedJobRepository savedJobRepository;
 
     @Autowired
     public JobService(JobRepository jobRepository, JobApplicationRepository applicationRepository) {
@@ -108,12 +113,17 @@ public class JobService {
         return job;
     }
 
+    @Transactional
     public void deleteJobForEmployer(Long employerId, Long jobId) {
         Job job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Job not found"));
         if (job.getEmployer() == null || job.getEmployer().getId() == null || !job.getEmployer().getId().equals(employerId)) {
             throw new ForbiddenException("Unauthorized access");
         }
+        // FKs from job_invites, applicant rows, saved_jobs must be removed before jobs row
+        jobInviteRepository.deleteByJobId(jobId);
+        applicationRepository.deleteByJobId(jobId);
+        savedJobRepository.deleteByJobId(jobId);
         jobRepository.delete(job);
     }
 

@@ -11,5 +11,7 @@ public interface SavedJobRepository
         extends JpaRepository<SavedJob, Long> {
 
     List<SavedJob> findByEmail(String email);
+
+    void deleteByJobId(Long jobId);
 }
 

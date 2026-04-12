@@ -12,4 +12,6 @@ public interface JobInviteRepository extends JpaRepository<JobInvite, Long> {
     List<JobInvite> findByInviteeEmailOrderByInvitedAtDesc(String inviteeEmail);
 
     boolean existsByJobIdAndInviteeEmail(Long jobId, String inviteeEmail);
+
+    void deleteByJobId(Long jobId);
 }

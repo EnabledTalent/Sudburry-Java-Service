@@ -31,6 +31,8 @@ public interface JobApplicationRepository
     List<JobApplicationRequest> findByJobIdIn(List<Long> jobIds);
 
     boolean existsByJobIdAndEmail(Long jobId, String email);
+
+    void deleteByJobId(Long jobId);
     @Query("""
 SELECT a.status AS status, COUNT(a) AS count
 FROM JobApplicationRequest a

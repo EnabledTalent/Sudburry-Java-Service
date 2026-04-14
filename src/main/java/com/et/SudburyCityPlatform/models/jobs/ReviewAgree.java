@@ -26,4 +26,10 @@ public class ReviewAgree {
     private String comments;
     private Boolean agreed;
     private Boolean hasDisability;
+
+    /**
+     * Full disability questionnaire from the UI (JSON). Stored as text/jsonb via ddl-auto.
+     */
+    @Column(name = "disability_json", columnDefinition = "TEXT")
+    private String disabilityJson;
 }

@@ -4,6 +4,8 @@ import com.et.SudburyCityPlatform.dto.*;
 import com.et.SudburyCityPlatform.exception.ResourceNotFoundException;
 import com.et.SudburyCityPlatform.models.jobs.*;
 import com.et.SudburyCityPlatform.repository.Jobs.JobSeekerProfileRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,9 +18,11 @@ import java.util.stream.Collectors;
 public class JobSeekerProfileService {
 
     private final JobSeekerProfileRepository repo;
+    private final ObjectMapper objectMapper;
 
-    public JobSeekerProfileService(JobSeekerProfileRepository repo) {
+    public JobSeekerProfileService(JobSeekerProfileRepository repo, ObjectMapper objectMapper) {
         this.repo = repo;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -145,7 +149,30 @@ public class JobSeekerProfileService {
             ra.setComments(dto.getReviewAgree().getComments());
             ra.setAgreed(dto.getReviewAgree().getAgreed());
             ra.setHasDisability(dto.getReviewAgree().getHasDisability());
+            ra.setDisabilityJson(serializeDisability(dto.getReviewAgree().getDisability()));
             p.setReviewAgree(ra);
+        }
+    }
+
+    private String serializeDisability(DisabilityDetailsDTO disability) {
+        if (disability == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(disability);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not serialize disability details", e);
+        }
+    }
+
+    private DisabilityDetailsDTO deserializeDisability(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, DisabilityDetailsDTO.class);
+        } catch (JsonProcessingException e) {
+            return null;
         }
     }
 
@@ -277,7 +304,8 @@ public class JobSeekerProfileService {
                     p.getReviewAgree().getDiscovery(),
                     p.getReviewAgree().getComments(),
                     p.getReviewAgree().getAgreed(),
-                    p.getReviewAgree().getHasDisability()
+                    p.getReviewAgree().getHasDisability(),
+                    deserializeDisability(p.getReviewAgree().getDisabilityJson())
             ));
         }
 

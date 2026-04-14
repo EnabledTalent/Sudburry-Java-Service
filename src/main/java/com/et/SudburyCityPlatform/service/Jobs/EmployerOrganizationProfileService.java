@@ -8,19 +8,23 @@ import com.et.SudburyCityPlatform.models.jobs.EmployerOrganizationProfile;
 import com.et.SudburyCityPlatform.repository.Jobs.EmployerRepository;
 import com.et.SudburyCityPlatform.repository.Jobs.EmployerOrganizationProfileRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class EmployerOrganizationProfileService {
 
     private final EmployerOrganizationProfileRepository repo;
     private final EmployerRepository employerRepository;
+    private final JobService jobService;
 
     public EmployerOrganizationProfileService(
             EmployerOrganizationProfileRepository repo,
-            EmployerRepository employerRepository
+            EmployerRepository employerRepository,
+            JobService jobService
     ) {
         this.repo = repo;
         this.employerRepository = employerRepository;
+        this.jobService = jobService;
     }
 
     public EmployerOrganizationProfile create(String email, EmployerOrganizationProfileRequestDTO dto) {
@@ -47,10 +51,24 @@ public class EmployerOrganizationProfileService {
                 .orElseThrow(() -> new ResourceNotFoundException("Employer organization profile not found"));
     }
 
+    /**
+     * Deletes organization profile, all jobs posted by this employer (and related invites/applications/saves),
+     * and the {@code employers} row for the same email when present.
+     */
+    @Transactional
     public void delete(String email) {
-        EmployerOrganizationProfile p = repo.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Employer organization profile not found"));
-        repo.delete(p);
+        Employer employer = employerRepository.findByEmail(email).orElse(null);
+        EmployerOrganizationProfile org = repo.findByEmail(email).orElse(null);
+        if (employer == null && org == null) {
+            throw new ResourceNotFoundException("Employer organization profile not found");
+        }
+        if (employer != null) {
+            jobService.deleteAllJobsForEmployer(employer.getId());
+            employerRepository.delete(employer);
+        }
+        if (org != null) {
+            repo.delete(org);
+        }
     }
 
     private void apply(EmployerOrganizationProfileRequestDTO dto, EmployerOrganizationProfile p) {

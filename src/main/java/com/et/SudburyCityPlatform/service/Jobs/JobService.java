@@ -128,6 +128,23 @@ public class JobService {
     }
 
     /**
+     * Removes every job for an employer (invites, applications, saves) then job rows.
+     * Used when deleting the employer account / organization profile.
+     */
+    @Transactional
+    public void deleteAllJobsForEmployer(Long employerId) {
+        List<Long> jobIds = jobRepository.findByEmployerId(employerId).stream()
+                .map(Job::getId)
+                .toList();
+        for (Long jobId : jobIds) {
+            jobInviteRepository.deleteByJobId(jobId);
+            applicationRepository.deleteByJobId(jobId);
+            savedJobRepository.deleteByJobId(jobId);
+            jobRepository.deleteById(jobId);
+        }
+    }
+
+    /**
      * Employer invites a job seeker (by email) to apply for a job. Creates a JobInvite record and sends an invite email.
      */
     public JobInvite inviteToApply(Long jobId, String inviteeEmail, Long employerId) {
